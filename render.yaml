@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: ai-resume-analyzer-backend
-    runtime: java
-    plan: free
-    buildCommand: ./mvnw clean package -DskipTests
-    startCommand: java -jar target/*.jar
