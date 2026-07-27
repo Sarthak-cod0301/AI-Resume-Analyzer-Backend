@@ -48,7 +48,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(
-                "http://localhost:8080",   // your current frontend
+                "https://ai-frontend-sigma-sable.vercel.app",   // your current frontend
                 "http://localhost:5173",   // keep this too, in case you switch to Vite later
                 "http://localhost:3000"    // common CRA port, harmless to include
         ));
