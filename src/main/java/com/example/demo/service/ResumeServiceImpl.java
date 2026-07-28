@@ -1,4 +1,3 @@
-// service/ResumeServiceImpl.java
 package com.example.demo.service;
 
 import com.example.demo.dto.*;
@@ -6,11 +5,11 @@ import com.example.demo.entity.Resume;
 import com.example.demo.entity.ResumeVersion;
 import com.example.demo.exception.ResumeNotFoundException;
 import com.example.demo.repository.ResumeRepository;
-import com.example.demo.util.FileStorageUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -24,28 +23,41 @@ public class ResumeServiceImpl implements ResumeService {
     private static final String STATUS_DELETED = "DELETED";
 
     private final ResumeRepository resumeRepository;
-    private final FileStorageUtil fileStorageUtil;
+    private final GridFSService gridFSService;
 
     @Override
     public ResumeResponseDTO uploadResume(MultipartFile file, String userId) {
-        String storedPath = fileStorageUtil.storeFile(file, userId);
-        String ext = fileStorageUtil.getExtension(file.getOriginalFilename());
-        String storedFileName = storedPath.substring(storedPath.lastIndexOf('/') + 1);
+        String fileId;
+        try {
+            fileId = gridFSService.saveFile(
+                    file.getInputStream(),
+                    file.getOriginalFilename(),
+                    file.getContentType()
+            );
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to store resume", e);
+        }
+
+        String originalName = file.getOriginalFilename();
+        String ext = (originalName != null && originalName.contains("."))
+                ? originalName.substring(originalName.lastIndexOf('.') + 1)
+                : "";
+        String storedFileName = originalName;
 
         ResumeVersion firstVersion = ResumeVersion.builder()
                 .versionNumber(1)
                 .storedFileName(storedFileName)
-                .filePath(storedPath)
-                .originalFileName(file.getOriginalFilename())
+                .filePath(fileId)
+                .originalFileName(originalName)
                 .fileSize(file.getSize())
                 .createdAt(LocalDateTime.now())
                 .build();
 
         Resume resume = Resume.builder()
                 .userId(userId)
-                .resumeName(file.getOriginalFilename())
+                .resumeName(originalName)
                 .storedFileName(storedFileName)
-                .resumePath(storedPath)
+                .resumePath(fileId)
                 .fileType(ext)
                 .fileSize(file.getSize())
                 .status(STATUS_ACTIVE)
@@ -68,22 +80,35 @@ public class ResumeServiceImpl implements ResumeService {
                 .max()
                 .orElse(0) + 1;
 
-        String storedPath = fileStorageUtil.storeFile(file, userId);
-        String ext = fileStorageUtil.getExtension(file.getOriginalFilename());
-        String storedFileName = storedPath.substring(storedPath.lastIndexOf('/') + 1);
+        String fileId;
+        try {
+            fileId = gridFSService.saveFile(
+                    file.getInputStream(),
+                    file.getOriginalFilename(),
+                    file.getContentType()
+            );
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to store resume", e);
+        }
+
+        String originalName = file.getOriginalFilename();
+        String ext = (originalName != null && originalName.contains("."))
+                ? originalName.substring(originalName.lastIndexOf('.') + 1)
+                : "";
+        String storedFileName = originalName;
 
         ResumeVersion newVersion = ResumeVersion.builder()
                 .versionNumber(nextVersion)
                 .storedFileName(storedFileName)
-                .filePath(storedPath)
-                .originalFileName(file.getOriginalFilename())
+                .filePath(fileId)
+                .originalFileName(originalName)
                 .fileSize(file.getSize())
                 .createdAt(LocalDateTime.now())
                 .build();
 
         resume.getVersions().add(newVersion);
         resume.setStoredFileName(storedFileName);
-        resume.setResumePath(storedPath);
+        resume.setResumePath(fileId);
         resume.setFileType(ext);
         resume.setFileSize(file.getSize());
         resume.setUpdatedAt(LocalDateTime.now());
@@ -109,10 +134,9 @@ public class ResumeServiceImpl implements ResumeService {
     public void deleteResume(String resumeId, String userId) {
         Resume resume = getOwnedResume(resumeId, userId);
 
-        // Remove all version files from disk
-        resume.getVersions().forEach(v -> fileStorageUtil.deleteFile(v.getFilePath()));
+        resume.getVersions().forEach(v ->
+                gridFSService.deleteFile(v.getFilePath()));
 
-        // Soft delete keeps the record (useful for Dashboard history) but hides it from listings
         resume.setStatus(STATUS_DELETED);
         resume.setUpdatedAt(LocalDateTime.now());
         resumeRepository.save(resume);
@@ -120,8 +144,14 @@ public class ResumeServiceImpl implements ResumeService {
 
     @Override
     public byte[] downloadResume(String resumeId, String userId) {
-        Resume resume = getOwnedResume(resumeId, userId);
-        return fileStorageUtil.loadFile(resume.getResumePath());
+        try {
+            Resume resume = getOwnedResume(resumeId, userId);
+            return gridFSService.getFile(resume.getResumePath())
+                    .getInputStream()
+                    .readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to download resume", e);
+        }
     }
 
     @Override
@@ -150,13 +180,25 @@ public class ResumeServiceImpl implements ResumeService {
                 .filter(v -> v.getVersionNumber().equals(versionNumber))
                 .findFirst()
                 .orElseThrow(() -> new ResumeNotFoundException("Version not found: " + versionNumber));
-        return fileStorageUtil.loadFile(version.getFilePath());
+        try {
+            return gridFSService.getFile(version.getFilePath())
+                    .getInputStream()
+                    .readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to download version", e);
+        }
     }
 
     @Override
     public byte[] previewResume(String resumeId, String userId) {
-        Resume resume = getOwnedResume(resumeId, userId);
-        return fileStorageUtil.loadFile(resume.getResumePath());
+        try {
+            Resume resume = getOwnedResume(resumeId, userId);
+            return gridFSService.getFile(resume.getResumePath())
+                    .getInputStream()
+                    .readAllBytes();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to preview resume", e);
+        }
     }
 
     private Resume getOwnedResume(String resumeId, String userId) {
