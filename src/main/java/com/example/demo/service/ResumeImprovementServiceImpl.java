@@ -32,7 +32,7 @@ public class ResumeImprovementServiceImpl implements ResumeImprovementService {
         Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
                 .orElseThrow(() -> new ImprovementException("Resume not found or not owned by user"));
 
-        String resumeText = textExtractionService.extractText(resume.getResumePath(), resume.getFileType());
+        String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText);
 
         String geminiResponse = geminiService.generateContent(prompt);
