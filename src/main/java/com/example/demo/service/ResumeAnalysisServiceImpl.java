@@ -36,7 +36,7 @@ public class ResumeAnalysisServiceImpl implements ResumeAnalysisService {
         JobDescription jd = jobDescriptionRepository.findByIdAndUserId(jobDescriptionId, userId)
                 .orElseThrow(() -> new AnalysisException("Job description not found or not owned by user"));
 
-        String resumeText = textExtractionService.extractText(resume.getResumePath(), resume.getFileType());
+        String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText, jd.getDescription());
 
         String geminiJsonResponse = geminiService.generateContent(prompt);
