@@ -19,6 +19,9 @@ public class TextExtractionService {
     private final GridFSService gridFSService;
 
     public String extractText(String gridFsId, String fileType) {
+            System.out.println("TextExtractionService:");
+    System.out.println("GridFS ID received = " + gridFsId);
+    System.out.println("File Type received = " + fileType);
         try {
             GridFsResource resource = gridFSService.getFile(gridFsId);
             if (resource == null || !resource.exists()) {
