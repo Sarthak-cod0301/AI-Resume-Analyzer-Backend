@@ -47,9 +47,9 @@ public class FormattingCheckerServiceImpl implements FormattingCheckerService {
         AnalysisContext ctx;
 
         if ("docx".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzeDocx(resume.getResumePath());
+            ctx = analyzeDocx(resume.getGridFsId());
         } else if ("pdf".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzePdf(resume.getResumePath());
+            ctx = analyzePdf(resume.getGridFsId());
         } else {
             throw new FormattingCheckException("Unsupported file type: " + resume.getFileType());
         }
