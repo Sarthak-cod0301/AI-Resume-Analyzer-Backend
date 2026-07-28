@@ -1,3 +1,4 @@
+// security/JwtAuthenticationFilter.java
 package com.example.demo.security;
 
 import jakarta.servlet.FilterChain;
@@ -21,13 +22,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
 
     @Override
-    protected void doFilterInternal(
-            @NonNull HttpServletRequest request,
-            @NonNull HttpServletResponse response,
-            @NonNull FilterChain filterChain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request,
+                                     @NonNull HttpServletResponse response,
+                                     @NonNull FilterChain filterChain)
             throws ServletException, IOException {
-
-        System.out.println("Request: " + request.getRequestURI());
 
         String authHeader = request.getHeader("Authorization");
 
@@ -39,13 +37,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
 
         if (jwtUtil.isTokenValid(token)) {
-            String userId = jwtUtil.extractUserId(token);
+            String userId = jwtUtil.extractUserId(token); // String, matches Mongo _id
 
             UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            userId,
-                            null,
-                            Collections.emptyList());
+                    new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
