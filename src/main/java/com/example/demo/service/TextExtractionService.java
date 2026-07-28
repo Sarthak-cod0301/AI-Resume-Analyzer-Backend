@@ -23,17 +23,29 @@ public class TextExtractionService {
                 case "docx" -> extractFromDocx(filePath);
                 default -> throw new AnalysisException("Unsupported file type: " + fileType);
             };
-        } catch (IOException e) {
-            throw new AnalysisException("Failed to extract text from resume file", e);
-        }
+      } catch (IOException e) {
+    e.printStackTrace();
+    throw new AnalysisException(
+            "Failed to extract text from resume file: " + e.getMessage(), e);
+}
     }
 
-    private String extractFromPdf(String filePath) throws IOException {
-        try (PDDocument document = Loader.loadPDF(new File(filePath))) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            return stripper.getText(document);
-        }
+private String extractFromPdf(String filePath) throws IOException {
+
+    File file = new File(filePath);
+
+    System.out.println("======================================");
+    System.out.println("FILE PATH = " + file.getAbsolutePath());
+    System.out.println("EXISTS = " + file.exists());
+    System.out.println("CAN READ = " + file.canRead());
+    System.out.println("FILE SIZE = " + (file.exists() ? file.length() : "NOT FOUND"));
+    System.out.println("======================================");
+
+    try (PDDocument document = Loader.loadPDF(file)) {
+        PDFTextStripper stripper = new PDFTextStripper();
+        return stripper.getText(document);
     }
+}
 
     private String extractFromDocx(String filePath) throws IOException {
         try (FileInputStream fis = new FileInputStream(filePath);
