@@ -18,27 +18,38 @@ public class TextExtractionService {
 
     private final GridFSService gridFSService;
 
-    public String extractText(String gridFsId, String fileType) {
-            System.out.println("TextExtractionService:");
-    System.out.println("GridFS ID received = " + gridFsId);
-    System.out.println("File Type received = " + fileType);
-        try {
-            GridFsResource resource = gridFSService.getFile(gridFsId);
-            if (resource == null || !resource.exists()) {
-                throw new RuntimeException("Resume not found");
-            }
+   public String extractText(String gridFsId, String fileType) {
 
-            try (InputStream inputStream = resource.getInputStream()) {
-                return switch (fileType.toLowerCase()) {
-                    case "pdf" -> extractPdf(inputStream);
-                    case "docx" -> extractDocx(inputStream);
-                    default -> throw new RuntimeException("Unsupported file");
-                };
-            }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+    System.out.println("===== TEXT EXTRACTION =====");
+    System.out.println("GridFS ID: " + gridFsId);
+    System.out.println("File Type: " + fileType);
+
+    try {
+        GridFsResource resource = gridFSService.getFile(gridFsId);
+
+        System.out.println("Resource = " + resource);
+
+        if (resource == null) {
+            System.out.println("Resource is NULL");
+            throw new RuntimeException("Resume not found");
         }
+
+        System.out.println("Exists = " + resource.exists());
+        System.out.println("Filename = " + resource.getFilename());
+
+        try (InputStream inputStream = resource.getInputStream()) {
+            return switch (fileType.toLowerCase()) {
+                case "pdf" -> extractPdf(inputStream);
+                case "docx" -> extractDocx(inputStream);
+                default -> throw new RuntimeException("Unsupported file");
+            };
+        }
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        throw new RuntimeException("Extraction failed", e);
     }
+}
 
     private String extractPdf(InputStream inputStream) throws Exception {
         try (PDDocument document = Loader.loadPDF(inputStream.readAllBytes())) {
