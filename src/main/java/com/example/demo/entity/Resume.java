@@ -19,7 +19,7 @@ public class Resume {
 
     private String resumeName;      // display/rename-able name
     private String storedFileName;  // current file on disk (UUID based)
-    private String resumePath;      // current full path on disk
+    private String gridFsId;      // current full path on disk
     private String fileType;        // pdf / docx
     private Long fileSize;
 
