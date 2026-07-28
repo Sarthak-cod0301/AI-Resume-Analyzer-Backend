@@ -56,16 +56,16 @@ public class AtsCheckerServiceImpl implements AtsCheckerService {
 
         long fileSize;
         try {
-            fileSize = Files.size(Paths.get(resume.getResumePath()));
+            fileSize = Files.size(Paths.get(resume.getGridFsId()));
         } catch (Exception e) {
             throw new AtsCheckException("Could not read resume file from disk", e);
         }
 
         AnalysisContext ctx;
         if ("pdf".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzePdf(resume.getResumePath());
+            ctx = analyzePdf(resume.getGridFsId());
         } else if ("docx".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzeDocx(resume.getResumePath());
+            ctx = analyzeDocx(resume.getGridFsId());
         } else {
             throw new AtsCheckException("Unsupported file type for ATS check: " + resume.getFileType());
         }
