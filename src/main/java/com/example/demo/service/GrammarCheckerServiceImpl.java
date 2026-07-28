@@ -59,7 +59,7 @@ public class GrammarCheckerServiceImpl implements GrammarCheckerService {
         Resume resume = resumeRepository.findByIdAndUserId(resumeId, userId)
                 .orElseThrow(() -> new GrammarCheckException("Resume not found or not owned by user"));
 
-        String resumeText = textExtractionService.extractText(resume.getResumePath(), resume.getFileType());
+        String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
 
         List<WeakWordIssueDTO> weakWordIssues = detectWeakWords(resumeText);
         List<PassiveVoiceIssueDTO> passiveVoiceIssues = detectPassiveVoice(resumeText);
