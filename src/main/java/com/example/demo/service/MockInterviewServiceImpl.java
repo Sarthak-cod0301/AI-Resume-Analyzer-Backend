@@ -40,7 +40,10 @@ public class MockInterviewServiceImpl implements MockInterviewService {
                     .orElseThrow(() -> new InterviewException("Job description not found or not owned by user"));
         }
 
-        String resumeText = textExtractionService.extractText(resume.getResumePath(), resume.getFileType());
+        String resumeText =
+textExtractionService.extractText(
+        resume.getGridFsId(),
+        resume.getFileType());
         int questionCount = request.getNumberOfQuestions() != null ? request.getNumberOfQuestions() : DEFAULT_QUESTION_COUNT;
 
         String prompt = buildQuestionGenerationPrompt(resumeText, jd != null ? jd.getDescription() : null, questionCount);
