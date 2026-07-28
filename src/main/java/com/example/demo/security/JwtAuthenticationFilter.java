@@ -1,4 +1,3 @@
-// security/JwtAuthenticationFilter.java
 package com.example.demo.security;
 
 import jakarta.servlet.FilterChain;
@@ -22,25 +21,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
 
     @Override
-protected void doFilterInternal(HttpServletRequest request,
-                                HttpServletResponse response,
-                                FilterChain filterChain)
-        throws ServletException, IOException {
-
-    System.out.println("Request: " + request.getRequestURI());
-
-    String authHeader = request.getHeader("Authorization");
-
-    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-        filterChain.doFilter(request, response);
-        return;
-    }
-
-    @Override
-    protected void doFilterInternal(@NonNull HttpServletRequest request,
-                                     @NonNull HttpServletResponse response,
-                                     @NonNull FilterChain filterChain)
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain)
             throws ServletException, IOException {
+
+        System.out.println("Request: " + request.getRequestURI());
 
         String authHeader = request.getHeader("Authorization");
 
@@ -52,10 +39,13 @@ protected void doFilterInternal(HttpServletRequest request,
         String token = authHeader.substring(7);
 
         if (jwtUtil.isTokenValid(token)) {
-            String userId = jwtUtil.extractUserId(token); // String, matches Mongo _id
+            String userId = jwtUtil.extractUserId(token);
 
             UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
+                    new UsernamePasswordAuthenticationToken(
+                            userId,
+                            null,
+                            Collections.emptyList());
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }
