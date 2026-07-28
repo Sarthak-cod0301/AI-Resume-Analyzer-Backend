@@ -1,55 +1,51 @@
-// service/TextExtractionService.java
 package com.example.demo.service;
 
 import com.example.demo.exception.AnalysisException;
+import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.InputStream;
 
 @Service
+@RequiredArgsConstructor
 public class TextExtractionService {
 
-    public String extractText(String filePath, String fileType) {
+    private final GridFSService gridFSService;
+
+    public String extractText(String gridFsId, String fileType) {
         try {
-            return switch (fileType.toLowerCase()) {
-                case "pdf" -> extractFromPdf(filePath);
-                case "docx" -> extractFromDocx(filePath);
-                default -> throw new AnalysisException("Unsupported file type: " + fileType);
-            };
-      } catch (IOException e) {
-    e.printStackTrace();
-    throw new AnalysisException(
-            "Failed to extract text from resume file: " + e.getMessage(), e);
-}
+            GridFsResource resource = gridFSService.getFile(gridFsId);
+            if (resource == null || !resource.exists()) {
+                throw new RuntimeException("Resume not found");
+            }
+
+            try (InputStream inputStream = resource.getInputStream()) {
+                return switch (fileType.toLowerCase()) {
+                    case "pdf" -> extractPdf(inputStream);
+                    case "docx" -> extractDocx(inputStream);
+                    default -> throw new RuntimeException("Unsupported file");
+                };
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
-private String extractFromPdf(String filePath) throws IOException {
-
-    File file = new File(filePath);
-
-    System.out.println("======================================");
-    System.out.println("FILE PATH = " + file.getAbsolutePath());
-    System.out.println("EXISTS = " + file.exists());
-    System.out.println("CAN READ = " + file.canRead());
-    System.out.println("FILE SIZE = " + (file.exists() ? file.length() : "NOT FOUND"));
-    System.out.println("======================================");
-
-    try (PDDocument document = Loader.loadPDF(file)) {
-        PDFTextStripper stripper = new PDFTextStripper();
-        return stripper.getText(document);
+    private String extractPdf(InputStream inputStream) throws Exception {
+        try (PDDocument document = Loader.loadPDF(inputStream.readAllBytes())) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            return stripper.getText(document);
+        }
     }
-}
 
-    private String extractFromDocx(String filePath) throws IOException {
-        try (FileInputStream fis = new FileInputStream(filePath);
-             XWPFDocument document = new XWPFDocument(fis);
+    private String extractDocx(InputStream inputStream) throws Exception {
+        try (XWPFDocument document = new XWPFDocument(inputStream);
              XWPFWordExtractor extractor = new XWPFWordExtractor(document)) {
             return extractor.getText();
         }
