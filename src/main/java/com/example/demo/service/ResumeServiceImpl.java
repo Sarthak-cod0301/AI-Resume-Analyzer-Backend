@@ -57,7 +57,7 @@ public class ResumeServiceImpl implements ResumeService {
                 .userId(userId)
                 .resumeName(originalName)
                 .storedFileName(storedFileName)
-                .resumePath(fileId)
+                .gridFsId(fileId)
                 .fileType(ext)
                 .fileSize(file.getSize())
                 .status(STATUS_ACTIVE)
@@ -108,7 +108,7 @@ public class ResumeServiceImpl implements ResumeService {
 
         resume.getVersions().add(newVersion);
         resume.setStoredFileName(storedFileName);
-        resume.setResumePath(fileId);
+        resume.setGridFsId(fileId);
         resume.setFileType(ext);
         resume.setFileSize(file.getSize());
         resume.setUpdatedAt(LocalDateTime.now());
@@ -146,7 +146,7 @@ public class ResumeServiceImpl implements ResumeService {
     public byte[] downloadResume(String resumeId, String userId) {
         try {
             Resume resume = getOwnedResume(resumeId, userId);
-            return gridFSService.getFile(resume.getResumePath())
+            return gridFSService.getFile(resume.getGridFsId())
                     .getInputStream()
                     .readAllBytes();
         } catch (IOException e) {
@@ -193,7 +193,7 @@ public class ResumeServiceImpl implements ResumeService {
     public byte[] previewResume(String resumeId, String userId) {
         try {
             Resume resume = getOwnedResume(resumeId, userId);
-            return gridFSService.getFile(resume.getResumePath())
+            return gridFSService.getFile(resume.getGridFsId())
                     .getInputStream()
                     .readAllBytes();
         } catch (IOException e) {
