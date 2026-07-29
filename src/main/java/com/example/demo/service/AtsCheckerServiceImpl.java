@@ -17,10 +17,9 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
+
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -31,6 +30,7 @@ public class AtsCheckerServiceImpl implements AtsCheckerService {
 
     private final ResumeRepository resumeRepository;
     private final AtsCheckResultRepository atsCheckResultRepository;
+    private final GridFSService gridFSService;
 
     private static final List<String> STANDARD_HEADINGS = List.of(
             "experience", "work experience", "education", "skills",
@@ -55,17 +55,20 @@ public class AtsCheckerServiceImpl implements AtsCheckerService {
         int score = 100;
 
         long fileSize;
+        byte[] fileBytes;
         try {
-            fileSize = Files.size(Paths.get(resume.getGridFsId()));
+            GridFsResource resource = gridFSService.getFile(resume.getGridFsId());
+            fileBytes = resource.getInputStream().readAllBytes();
+            fileSize = fileBytes.length;
         } catch (Exception e) {
-            throw new AtsCheckException("Could not read resume file from disk", e);
+            throw new AtsCheckException("Could not read resume file from storage", e);
         }
 
         AnalysisContext ctx;
         if ("pdf".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzePdf(resume.getGridFsId());
+            ctx = analyzePdf(fileBytes);
         } else if ("docx".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzeDocx(resume.getGridFsId());
+            ctx = analyzeDocx(fileBytes);
         } else {
             throw new AtsCheckException("Unsupported file type for ATS check: " + resume.getFileType());
         }
@@ -188,9 +191,9 @@ public class AtsCheckerServiceImpl implements AtsCheckerService {
         return toDTO(entity);
     }
 
-    private AnalysisContext analyzePdf(String filePath) {
+    private AnalysisContext analyzePdf(byte[] fileBytes) {
         AnalysisContext ctx = new AnalysisContext();
-        try (PDDocument document = Loader.loadPDF(new File(filePath))) {
+        try (PDDocument document = Loader.loadPDF(fileBytes)) {
             ctx.pageCount = document.getNumberOfPages();
 
             PDFTextStripper stripper = new PDFTextStripper();
@@ -233,10 +236,10 @@ public class AtsCheckerServiceImpl implements AtsCheckerService {
         return ctx;
     }
 
-    private AnalysisContext analyzeDocx(String filePath) {
+    private AnalysisContext analyzeDocx(byte[] fileBytes) {
         AnalysisContext ctx = new AnalysisContext();
-        try (FileInputStream fis = new FileInputStream(filePath);
-             XWPFDocument document = new XWPFDocument(fis)) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(fileBytes);
+             XWPFDocument document = new XWPFDocument(bis)) {
 
             StringBuilder textBuilder = new StringBuilder();
             Set<String> fontNames = new HashSet<>();
