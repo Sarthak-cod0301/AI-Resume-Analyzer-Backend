@@ -7,7 +7,6 @@ import com.example.demo.entity.Resume;
 import com.example.demo.exception.GrammarCheckException;
 import com.example.demo.repository.GrammarCheckResultRepository;
 import com.example.demo.repository.ResumeRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -62,8 +61,13 @@ public class GrammarCheckerServiceImpl implements GrammarCheckerService {
         String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
 
         List<WeakWordIssueDTO> weakWordIssues = detectWeakWords(resumeText);
-        List<PassiveVoiceIssueDTO> passiveVoiceIssues = detectPassiveVoice(resumeText);
-        List<GrammarIssueDTO> grammarIssues = detectGrammarMistakesViaAI(resumeText);
+        List<String> passiveSentences = detectPassiveVoiceSentences(resumeText);
+
+        // Single combined Gemini call covering both grammar mistakes and passive-voice
+        // rewrites, instead of two separate calls - halves this check's AI quota usage.
+        CombinedAiReviewRaw aiResult = runCombinedAiReview(resumeText, passiveSentences);
+        List<GrammarIssueDTO> grammarIssues = aiResult.grammarIssues != null ? aiResult.grammarIssues : new ArrayList<>();
+        List<PassiveVoiceIssueDTO> passiveVoiceIssues = buildPassiveVoiceIssues(passiveSentences, aiResult.passiveRewrites);
 
         int totalIssues = weakWordIssues.size() + passiveVoiceIssues.size() + grammarIssues.size();
         int score = calculateScore(resumeText, totalIssues);
@@ -111,97 +115,86 @@ public class GrammarCheckerServiceImpl implements GrammarCheckerService {
         return Character.toUpperCase(match.charAt(0)) + match.substring(1);
     }
 
-    private List<PassiveVoiceIssueDTO> detectPassiveVoice(String text) {
-        List<PassiveVoiceIssueDTO> issues = new ArrayList<>();
-        String[] sentences = text.split("(?<=[.!?\\n])\\s+");
+    // Regex-only pass - no AI call, just flags candidate sentences for the AI step below.
+    private List<String> detectPassiveVoiceSentences(String text) {
+        List<String> sentences = new ArrayList<>();
+        String[] split = text.split("(?<=[.!?\\n])\\s+");
 
-        for (String sentence : sentences) {
+        for (String sentence : split) {
             String trimmed = sentence.trim();
             if (trimmed.isEmpty() || trimmed.length() < 10) continue;
 
             Matcher m = PASSIVE_PATTERN.matcher(trimmed);
             if (m.find()) {
-                issues.add(PassiveVoiceIssueDTO.builder()
-                        .originalSentence(trimmed.length() > 150 ? trimmed.substring(0, 150) + "..." : trimmed)
-                        .suggestedActiveSentence(null)
-                        .build());
+                sentences.add(trimmed.length() > 150 ? trimmed.substring(0, 150) + "..." : trimmed);
             }
         }
-        return rewritePassiveSentencesViaAI(issues);
+        return sentences.stream().limit(15).collect(Collectors.toList());
     }
 
-    private List<PassiveVoiceIssueDTO> rewritePassiveSentencesViaAI(List<PassiveVoiceIssueDTO> detected) {
-        if (detected.isEmpty()) return detected;
-
-        List<PassiveVoiceIssueDTO> limited = detected.stream().limit(15).collect(Collectors.toList());
-
-        String sentenceList = limited.stream()
-                .map(PassiveVoiceIssueDTO::getOriginalSentence)
-                .collect(Collectors.joining("\n- ", "- ", ""));
-
-        String prompt = """
-            Rewrite each of the following resume sentences from passive voice into active voice.
-            Keep all facts, technologies, and meaning exactly the same - only change sentence structure.
-
-            Return ONLY a valid JSON array (no markdown, no extra text) with EXACTLY this structure,
-            in the SAME ORDER as the input sentences:
-
-            [
-              { "original": "<original sentence>", "active": "<active voice rewrite>" }
-            ]
-
-            SENTENCES:
-            %s
-            """.formatted(sentenceList);
-
-        try {
-            String response = geminiService.generateContent(prompt);
-            String cleaned = response.replaceAll("```json", "").replaceAll("```", "").trim();
-            List<Map<String, String>> rewrites = objectMapper.readValue(cleaned, new TypeReference<>() {});
-
-            List<PassiveVoiceIssueDTO> result = new ArrayList<>();
-            for (int i = 0; i < limited.size() && i < rewrites.size(); i++) {
-                result.add(PassiveVoiceIssueDTO.builder()
-                        .originalSentence(limited.get(i).getOriginalSentence())
-                        .suggestedActiveSentence(rewrites.get(i).get("active"))
-                        .build());
-            }
-            return result;
-        } catch (Exception e) {
-            return limited; // fall back to flagged-only if AI rewrite fails
+    private List<PassiveVoiceIssueDTO> buildPassiveVoiceIssues(List<String> detectedSentences, List<PassiveRewriteRaw> rewrites) {
+        List<PassiveVoiceIssueDTO> result = new ArrayList<>();
+        for (int i = 0; i < detectedSentences.size(); i++) {
+            String active = (rewrites != null && i < rewrites.size()) ? rewrites.get(i).active : null;
+            result.add(PassiveVoiceIssueDTO.builder()
+                    .originalSentence(detectedSentences.get(i))
+                    .suggestedActiveSentence(active)
+                    .build());
         }
+        return result;
     }
 
-    private List<GrammarIssueDTO> detectGrammarMistakesViaAI(String text) {
+    // Single Gemini call that covers both grammar-mistake detection AND passive-voice
+    // rewrites in one round trip (previously two separate calls).
+    private CombinedAiReviewRaw runCombinedAiReview(String text, List<String> passiveSentences) {
+        String passiveSection = passiveSentences.isEmpty()
+                ? "None detected."
+                : passiveSentences.stream().collect(Collectors.joining("\n- ", "- ", ""));
+
         String prompt = """
-            You are a professional proofreader. Find GRAMMAR mistakes only (not style, not tone) in
-            the resume text below - things like subject-verb agreement, tense inconsistency, wrong
-            prepositions, punctuation errors, or spelling mistakes.
+            You are a professional proofreader and resume writing coach. You have two tasks on the
+            resume text below.
 
-            Return ONLY a valid JSON array (no markdown, no extra text) with EXACTLY this structure:
+            TASK 1 - GRAMMAR: Find GRAMMAR mistakes only (not style, not tone) in the FULL RESUME
+            TEXT - things like subject-verb agreement, tense inconsistency, wrong prepositions,
+            punctuation errors, or spelling mistakes. Limit to the 15 most significant issues.
 
-            [
-              {
-                "originalText": "<the exact incorrect phrase/sentence as it appears>",
-                "correctedText": "<the corrected version>",
-                "explanation": "<brief explanation, e.g. 'Subject-verb agreement error'>"
-              }
-            ]
+            TASK 2 - PASSIVE VOICE REWRITES: For EACH sentence listed under PASSIVE VOICE SENTENCES
+            below, rewrite it from passive voice into active voice. Keep all facts, technologies,
+            and meaning exactly the same - only change sentence structure. Return exactly one
+            rewrite per listed sentence, in the SAME ORDER as listed.
+
+            Return ONLY a valid JSON object (no markdown, no extra text) with EXACTLY this structure:
+
+            {
+              "grammarIssues": [
+                {
+                  "originalText": "<the exact incorrect phrase/sentence as it appears>",
+                  "correctedText": "<the corrected version>",
+                  "explanation": "<brief explanation, e.g. 'Subject-verb agreement error'>"
+                }
+              ],
+              "passiveRewrites": [
+                { "original": "<original sentence>", "active": "<active voice rewrite>" }
+              ]
+            }
 
             Rules:
-            - Only flag genuine grammar errors, not stylistic preferences.
-            - Limit to the 15 most significant issues.
-            - Return an empty array [] if no grammar mistakes are found.
-            - Return ONLY the JSON array, nothing else.
+            - grammarIssues: only flag genuine grammar errors, not stylistic preferences. Return [] if none found.
+            - passiveRewrites: return exactly one entry per sentence listed below, same order. Return [] if none listed.
+            - Return ONLY the JSON object, nothing else.
 
-            RESUME TEXT:
+            FULL RESUME TEXT:
             %s
-            """.formatted(text);
+
+            PASSIVE VOICE SENTENCES:
+            %s
+            """.formatted(text, passiveSection);
 
         try {
             String response = geminiService.generateContent(prompt);
             String cleaned = response.replaceAll("```json", "").replaceAll("```", "").trim();
-            return objectMapper.readValue(cleaned, new TypeReference<List<GrammarIssueDTO>>() {});
+            return objectMapper.readValue(cleaned, CombinedAiReviewRaw.class);
         } catch (Exception e) {
             throw new GrammarCheckException("Failed to parse AI grammar check response", e);
         }
@@ -238,5 +231,16 @@ public class GrammarCheckerServiceImpl implements GrammarCheckerService {
                 .totalIssuesFound(entity.getTotalIssuesFound())
                 .checkedAt(entity.getCheckedAt())
                 .build();
+    }
+
+    // Internal helpers matching the merged Gemini JSON response shape
+    private static class PassiveRewriteRaw {
+        public String original;
+        public String active;
+    }
+
+    private static class CombinedAiReviewRaw {
+        public List<GrammarIssueDTO> grammarIssues;
+        public List<PassiveRewriteRaw> passiveRewrites;
     }
 }
