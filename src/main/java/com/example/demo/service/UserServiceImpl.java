@@ -11,7 +11,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import com.example.demo.entity.Resume;
 import com.example.demo.repository.*;
-import com.example.demo.util.FileStorageUtil;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
@@ -80,7 +79,7 @@ public class UserServiceImpl implements UserService {
  private final FormattingCheckResultRepository formattingCheckResultRepository;
  private final InterviewSessionRepository interviewSessionRepository;
  private final PasswordResetTokenRepository resetTokenRepository;
- private final FileStorageUtil fileStorageUtil;
+ private final GridFSService gridFSService;
 
  @Override
  @Transactional
@@ -91,11 +90,11 @@ public class UserServiceImpl implements UserService {
          throw new AuthException("Incorrect password - account deletion cancelled");
      }
 
-     // Delete all physical resume files (and their version history files) from disk
+     // Delete all resume file blobs (and their version history files) from GridFS
      // before wiping the Resume records themselves
      List<Resume> resumes = resumeRepository.findByUserIdAndStatus(userId, "ACTIVE");
      for (Resume resume : resumes) {
-         resume.getVersions().forEach(v -> fileStorageUtil.deleteFile(v.getFilePath()));
+         resume.getVersions().forEach(v -> gridFSService.deleteFile(v.getFilePath()));
      }
 
      // Cascade delete across every module's collection
