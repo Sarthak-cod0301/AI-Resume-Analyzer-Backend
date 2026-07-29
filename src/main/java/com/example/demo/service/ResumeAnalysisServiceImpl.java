@@ -35,9 +35,6 @@ public class ResumeAnalysisServiceImpl implements ResumeAnalysisService {
 
         JobDescription jd = jobDescriptionRepository.findByIdAndUserId(jobDescriptionId, userId)
                 .orElseThrow(() -> new AnalysisException("Job description not found or not owned by user"));
-System.out.println("Resume ID = " + resume.getId());
-System.out.println("GridFS ID = " + resume.getGridFsId());
-System.out.println("File Type = " + resume.getFileType());
         String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText, jd.getDescription());
 
