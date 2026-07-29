@@ -37,9 +37,15 @@ public class ProjectAnalyzerServiceImpl implements ProjectAnalyzerService {
         String geminiResponse = geminiService.generateContent(prompt);
         GeminiProjectsRaw raw = parseGeminiResponse(geminiResponse);
 
-        if (raw.projects == null || raw.projects.isEmpty()) {
-            throw new ProjectAnalysisException("No projects could be identified in this resume");
-        }
+     if (raw.projects == null) {
+    raw.projects = List.of();
+}
+
+if (raw.generalRecommendations == null) {
+    raw.generalRecommendations = List.of(
+            "AI project analysis is temporarily unavailable."
+    );
+}
 
         double avgScore = raw.projects.stream()
                 .mapToInt(ProjectInsightDTO::getComplexityScore)
@@ -113,14 +119,40 @@ public class ProjectAnalyzerServiceImpl implements ProjectAnalyzerService {
             """.formatted(resumeText);
     }
 
-    private GeminiProjectsRaw parseGeminiResponse(String jsonResponse) {
-        try {
-            String cleaned = jsonResponse.replaceAll("```json", "").replaceAll("```", "").trim();
-            return objectMapper.readValue(cleaned, GeminiProjectsRaw.class);
-        } catch (Exception e) {
-            throw new ProjectAnalysisException("Failed to parse AI project analysis response", e);
+private GeminiProjectsRaw parseGeminiResponse(String jsonResponse) {
+
+    GeminiProjectsRaw fallback = new GeminiProjectsRaw();
+    fallback.projects = List.of();
+    fallback.generalRecommendations =
+            List.of("AI project analysis is temporarily unavailable.");
+
+    try {
+
+        if(jsonResponse == null || jsonResponse.isBlank()) {
+            return fallback;
         }
+
+        String cleaned = jsonResponse
+                .replace("```json","")
+                .replace("```","")
+                .trim();
+
+        GeminiProjectsRaw raw =
+                objectMapper.readValue(cleaned, GeminiProjectsRaw.class);
+
+        if(raw.projects == null)
+            raw.projects = List.of();
+
+        if(raw.generalRecommendations == null)
+            raw.generalRecommendations = List.of();
+
+        return raw;
+
+    } catch(Exception e) {
+
+        return fallback;
     }
+}
 
     @Override
     public List<ProjectAnalysisResponseDTO> getHistory(String userId) {
