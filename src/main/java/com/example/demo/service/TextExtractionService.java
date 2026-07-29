@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.exception.AnalysisException;
+import com.example.demo.exception.TextExtractionException;
 import lombok.RequiredArgsConstructor;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -18,38 +18,30 @@ public class TextExtractionService {
 
     private final GridFSService gridFSService;
 
-   public String extractText(String gridFsId, String fileType) {
-
-    System.out.println("===== TEXT EXTRACTION =====");
-    System.out.println("GridFS ID: " + gridFsId);
-    System.out.println("File Type: " + fileType);
-
-    try {
-        GridFsResource resource = gridFSService.getFile(gridFsId);
-
-        System.out.println("Resource = " + resource);
-
-        if (resource == null) {
-            System.out.println("Resource is NULL");
-            throw new RuntimeException("Resume not found");
+    public String extractText(String gridFsId, String fileType) {
+        GridFsResource resource;
+        try {
+            resource = gridFSService.getFile(gridFsId);
+        } catch (Exception e) {
+            throw new TextExtractionException("Could not read resume file from storage", e);
         }
 
-        System.out.println("Exists = " + resource.exists());
-        System.out.println("Filename = " + resource.getFilename());
+        if (resource == null || !resource.exists()) {
+            throw new TextExtractionException("Resume file not found in storage");
+        }
 
         try (InputStream inputStream = resource.getInputStream()) {
             return switch (fileType.toLowerCase()) {
                 case "pdf" -> extractPdf(inputStream);
                 case "docx" -> extractDocx(inputStream);
-                default -> throw new RuntimeException("Unsupported file");
+                default -> throw new TextExtractionException("Unsupported file type: " + fileType);
             };
+        } catch (TextExtractionException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new TextExtractionException("Failed to extract text from resume", e);
         }
-
-    } catch (Exception e) {
-        e.printStackTrace();
-        throw new RuntimeException("Extraction failed", e);
     }
-}
 
     private String extractPdf(InputStream inputStream) throws Exception {
         try (PDDocument document = Loader.loadPDF(inputStream.readAllBytes())) {
