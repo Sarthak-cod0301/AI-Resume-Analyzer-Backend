@@ -19,8 +19,9 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.usermodel.*;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileInputStream;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
+
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -34,6 +35,7 @@ public class FormattingCheckerServiceImpl implements FormattingCheckerService {
     private final TextExtractionService textExtractionService;
     private final GeminiService geminiService;
     private final ObjectMapper objectMapper;
+    private final GridFSService gridFSService;
 
     private static final Set<String> BULLET_CHAR_CATEGORIES = Set.of("•", "-", "*", "▪", "‣", "◦");
 
@@ -46,10 +48,18 @@ public class FormattingCheckerServiceImpl implements FormattingCheckerService {
         int ruleScore = 100;
         AnalysisContext ctx;
 
+        byte[] fileBytes;
+        try {
+            GridFsResource resource = gridFSService.getFile(resume.getGridFsId());
+            fileBytes = resource.getInputStream().readAllBytes();
+        } catch (Exception e) {
+            throw new FormattingCheckException("Could not read resume file from storage", e);
+        }
+
         if ("docx".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzeDocx(resume.getGridFsId());
+            ctx = analyzeDocx(fileBytes);
         } else if ("pdf".equalsIgnoreCase(resume.getFileType())) {
-            ctx = analyzePdf(resume.getGridFsId());
+            ctx = analyzePdf(fileBytes);
         } else {
             throw new FormattingCheckException("Unsupported file type: " + resume.getFileType());
         }
@@ -206,10 +216,10 @@ public class FormattingCheckerServiceImpl implements FormattingCheckerService {
     }
 
     // ---------- DOCX analysis (rich structural access) ----------
-    private AnalysisContext analyzeDocx(String filePath) {
+    private AnalysisContext analyzeDocx(byte[] fileBytes) {
         AnalysisContext ctx = new AnalysisContext();
-        try (FileInputStream fis = new FileInputStream(filePath);
-             XWPFDocument document = new XWPFDocument(fis)) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(fileBytes);
+             XWPFDocument document = new XWPFDocument(bis)) {
 
             List<XWPFParagraph> paragraphs = document.getParagraphs();
             int blankLineStreak = 0;
@@ -280,9 +290,9 @@ public class FormattingCheckerServiceImpl implements FormattingCheckerService {
     }
 
     // ---------- PDF analysis (limited layout signal - AI layer compensates) ----------
-    private AnalysisContext analyzePdf(String filePath) {
+    private AnalysisContext analyzePdf(byte[] fileBytes) {
         AnalysisContext ctx = new AnalysisContext();
-        try (PDDocument document = Loader.loadPDF(new File(filePath))) {
+        try (PDDocument document = Loader.loadPDF(fileBytes)) {
 
             for (PDPage page : document.getPages()) {
                 if (page.getResources() != null) {
