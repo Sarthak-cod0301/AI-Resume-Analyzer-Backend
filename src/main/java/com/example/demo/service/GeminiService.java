@@ -46,6 +46,10 @@ public class GeminiService {
 
     public String generateContent(String prompt) {
         awaitThrottleSlot();
+    System.out.println("================================");
+System.out.println("Calling Gemini...");
+System.out.println("Prompt length: " + prompt.length());
+System.out.println("================================");
         String url = apiUrl + "?key=" + apiKey;
 
         Map<String, Object> requestBody = Map.of(
@@ -68,6 +72,11 @@ public class GeminiService {
                 ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
                 return extractTextFromResponse(response.getBody());
             } catch (HttpStatusCodeException e) {
+System.out.println("================================");
+System.out.println("HTTP Status : " + e.getStatusCode());
+System.out.println("Response Body:");
+System.out.println(e.getResponseBodyAsString());
+System.out.println("================================");
                 boolean retryable = e.getStatusCode().value() == 429 || e.getStatusCode().is5xxServerError();
                 if (retryable && attempt < MAX_RETRIES) {
                     attempt++;
@@ -75,9 +84,12 @@ public class GeminiService {
                     continue;
                 }
                 throw new AnalysisException(buildFriendlyMessage(e), e);
-            } catch (Exception e) {
-                throw new AnalysisException("AI service is temporarily unavailable. Please try again shortly.", e);
-            }
+} catch (Exception e) {
+    e.printStackTrace();
+
+    throw new AnalysisException(
+        "AI service is temporarily unavailable. Please try again shortly.", e);
+}
         }
     }
 
