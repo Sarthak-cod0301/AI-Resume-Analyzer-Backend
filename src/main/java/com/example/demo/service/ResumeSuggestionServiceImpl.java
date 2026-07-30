@@ -41,7 +41,7 @@ public class ResumeSuggestionServiceImpl implements ResumeSuggestionService {
         String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText, jd.getDescription());
 
-        String geminiResponse = geminiService.generateContent(prompt);
+        String geminiResponse = geminiService.generateContent(prompt, GeminiService.ApiKeyPool.TERTIARY);
         List<BulletSuggestionDTO> suggestions = parseGeminiResponse(geminiResponse);
 
         ResumeSuggestion entity = ResumeSuggestion.builder()
