@@ -62,4 +62,11 @@ public class MockInterviewController {
     public ResponseEntity<List<InterviewSessionDTO>> history(Authentication authentication) {
         return ResponseEntity.ok(mockInterviewService.getHistory(currentUserId(authentication)));
     }
+
+    @DeleteMapping("/{sessionId}")
+    public ResponseEntity<Void> deleteSession(@PathVariable String sessionId,
+                                               Authentication authentication) {
+        mockInterviewService.deleteSession(sessionId, currentUserId(authentication));
+        return ResponseEntity.noContent().build();
+    }
 }
