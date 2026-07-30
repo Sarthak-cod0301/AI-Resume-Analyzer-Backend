@@ -11,4 +11,5 @@ public interface MockInterviewService {
     InterviewSessionDTO completeInterview(String sessionId, String userId);
     InterviewSessionDTO getSession(String sessionId, String userId);
     List<InterviewSessionDTO> getHistory(String userId);
+    void deleteSession(String sessionId, String userId);
 }
