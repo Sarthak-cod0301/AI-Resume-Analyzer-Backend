@@ -274,6 +274,14 @@ textExtractionService.extractText(
                 .stream().map(this::toDTO).collect(Collectors.toList());
     }
 
+    @Override
+    public void deleteSession(String sessionId, String userId) {
+        // Verify ownership first so a user can't delete another user's session
+        // just by guessing/passing a different sessionId.
+        getOwnedSession(sessionId, userId);
+        sessionRepository.deleteByIdAndUserId(sessionId, userId);
+    }
+
     private InterviewSession getOwnedSession(String sessionId, String userId) {
         return sessionRepository.findByIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new InterviewException("Interview session not found"));
