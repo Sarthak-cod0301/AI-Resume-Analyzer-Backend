@@ -38,7 +38,7 @@ public class ResumeAnalysisServiceImpl implements ResumeAnalysisService {
         String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText, jd.getDescription());
 
-        String geminiJsonResponse = geminiService.generateContent(prompt);
+        String geminiJsonResponse = geminiService.generateContent(prompt, GeminiService.ApiKeyPool.TERTIARY);
         GeminiAnalysisRaw raw = parseGeminiResponse(geminiJsonResponse);
 
         ResumeAnalysis entity = ResumeAnalysis.builder()
