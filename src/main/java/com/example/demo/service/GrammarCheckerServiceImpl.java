@@ -193,28 +193,17 @@ public class GrammarCheckerServiceImpl implements GrammarCheckerService {
 
         String response;
         try {
-            // Only the Gemini call itself is isolated here. If it fails (quota/rate
-            // limit/etc.), GeminiService already throws a clear AnalysisException with
-            // the real reason - don't swallow that behind a generic message below.
             response = geminiService.generateContent(prompt);
-        } catch (Exception e) {
-            // Degrade gracefully instead of failing the whole grammar check: weak-word
-            // and passive-voice detection above are pure regex and still work fine even
-            // when the AI quota is exhausted, so return those with no AI-detected grammar
-            // issues rather than erroring out entirely (mirrors FormattingCheckerServiceImpl).
-            CombinedAiReviewRaw fallback = new CombinedAiReviewRaw();
-            fallback.grammarIssues = new ArrayList<>();
-            fallback.passiveRewrites = null;
-            return fallback;
+        } catch (RuntimeException e) {
+            // Propagate the real cause (rate limit, quota, network, etc.) with its actual
+            // message intact instead of relabeling it as a parsing failure below.
+            throw new GrammarCheckException(e.getMessage(), e);
         }
 
         try {
             String cleaned = response.replaceAll("```json", "").replaceAll("```", "").trim();
             return objectMapper.readValue(cleaned, CombinedAiReviewRaw.class);
         } catch (Exception e) {
-            // This means Gemini responded successfully but the body wasn't valid JSON
-            // (e.g. truncated output, or it added commentary despite instructions) -
-            // this is genuinely a parse failure, so keep this message specific to that.
             throw new GrammarCheckException("Failed to parse AI grammar check response", e);
         }
     }
