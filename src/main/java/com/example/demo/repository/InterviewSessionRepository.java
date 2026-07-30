@@ -10,4 +10,5 @@ public interface InterviewSessionRepository extends MongoRepository<InterviewSes
     List<InterviewSession> findByUserIdOrderByStartedAtDesc(String userId);
     void deleteByUserId(String userId);
     Optional<InterviewSession> findByIdAndUserId(String id, String userId);
+    void deleteByIdAndUserId(String id, String userId);
 }
