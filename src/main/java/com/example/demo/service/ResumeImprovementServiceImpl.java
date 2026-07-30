@@ -35,7 +35,7 @@ public class ResumeImprovementServiceImpl implements ResumeImprovementService {
         String resumeText = textExtractionService.extractText(resume.getGridFsId(), resume.getFileType());
         String prompt = buildPrompt(resumeText);
 
-        String geminiResponse = geminiService.generateContent(prompt);
+        String geminiResponse = geminiService.generateContent(prompt, GeminiService.ApiKeyPool.SECONDARY);
         List<SectionImprovementDTO> sections = parseGeminiResponse(geminiResponse);
 
         ResumeImprovement entity = ResumeImprovement.builder()
