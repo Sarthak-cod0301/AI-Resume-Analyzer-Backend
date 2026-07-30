@@ -4,53 +4,75 @@ package com.example.demo.service;
 import com.example.demo.exception.AnalysisException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.EnumMap;
 import java.util.Map;
 
 @Service
 public class GeminiService {
 
+    private static final Logger log = LoggerFactory.getLogger(GeminiService.class);
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
     @Value("${gemini.api.key}")
-    private String apiKey;
+    private String primaryKey;
+
+    @Value("${gemini.api.key.secondary}")
+    private String secondaryKey;
+
+    @Value("${gemini.api.key.tertiary}")
+    private String tertiaryKey;
 
     @Value("${gemini.api.url}")
     private String apiUrl;
 
-    // Small retry for transient throttling only - won't help if the daily quota
-    // itself is exhausted, but recovers from short-lived per-minute rate limits.
-    private static final int MAX_RETRIES = 3;
-    private static final long RETRY_DELAY_MS = 5000;
+    private static final int MAX_RETRIES = 2;
+    private static final long RETRY_DELAY_MS = 4000;
 
-    // The free Gemini tier used by this project caps requests at 10/minute.
-    // "Run all checks" fires several calls back to back, which blows straight
-    // through that limit and comes back as 429s (and sometimes 404s from Google
-    // when the quota bucket is fully drained). This lock+timestamp pair forces
-    // every call through this service to wait at least MIN_INTERVAL_MS since the
-    // last one, so concurrent checks queue up instead of all firing at once.
-    private static final long MIN_INTERVAL_MS = 6500; // ~9 req/min, safely under the 10 RPM cap
-    private static final Object THROTTLE_LOCK = new Object();
-    private static long lastCallTimestamp = 0L;
+    // --- Self-imposed rate limiter, per key pool ------------------------------------
+    // Each ApiKeyPool is backed by a different Gemini API key (ideally from a
+    // different Google Cloud project, so it has its own free-tier RPM/RPD quota
+    // rather than sharing one). Features are split across pools so a burst on one
+    // feature group doesn't exhaust the quota the others depend on. Within each pool
+    // we still self-throttle to stay under that key's ~5 RPM cap.
+    public enum ApiKeyPool { PRIMARY, SECONDARY, TERTIARY }
+
+    private static final int MAX_REQUESTS_PER_WINDOW = 4;
+    private static final long WINDOW_MILLIS = 60_000;
+
+    private final Map<ApiKeyPool, Deque<Long>> requestTimestamps = new EnumMap<>(ApiKeyPool.class);
+    private final Map<ApiKeyPool, Object> rateLimitLocks = new EnumMap<>(ApiKeyPool.class);
 
     public GeminiService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        for (ApiKeyPool pool : ApiKeyPool.values()) {
+            requestTimestamps.put(pool, new ArrayDeque<>());
+            rateLimitLocks.put(pool, new Object());
+        }
     }
 
+    /** Existing callers keep working unchanged - defaults to the primary key/pool. */
     public String generateContent(String prompt) {
-        awaitThrottleSlot();
-    System.out.println("================================");
-System.out.println("Calling Gemini...");
-System.out.println("Prompt length: " + prompt.length());
-System.out.println("================================");
-        String url = apiUrl + "?key=" + apiKey;
+        return generateContent(prompt, ApiKeyPool.PRIMARY);
+    }
+
+    public String generateContent(String prompt, ApiKeyPool pool) {
+        awaitRateLimitSlot(pool);
+
+        String key = resolveKey(pool);
+        String url = apiUrl + "?key=" + key;
 
         Map<String, Object> requestBody = Map.of(
                 "contents", new Object[]{
@@ -72,11 +94,9 @@ System.out.println("================================");
                 ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
                 return extractTextFromResponse(response.getBody());
             } catch (HttpStatusCodeException e) {
-System.out.println("================================");
-System.out.println("HTTP Status : " + e.getStatusCode());
-System.out.println("Response Body:");
-System.out.println(e.getResponseBodyAsString());
-System.out.println("================================");
+                log.warn("Gemini API call failed on pool {} with status {}: {}",
+                        pool, e.getStatusCode(), e.getResponseBodyAsString());
+
                 boolean retryable = e.getStatusCode().value() == 429 || e.getStatusCode().is5xxServerError();
                 if (retryable && attempt < MAX_RETRIES) {
                     attempt++;
@@ -84,12 +104,43 @@ System.out.println("================================");
                     continue;
                 }
                 throw new AnalysisException(buildFriendlyMessage(e), e);
-} catch (Exception e) {
-    e.printStackTrace();
+            } catch (Exception e) {
+                log.warn("Gemini API call failed on pool {} with a non-HTTP error", pool, e);
+                throw new AnalysisException("AI service is temporarily unavailable. Please try again shortly.", e);
+            }
+        }
+    }
 
-    throw new AnalysisException(
-        "AI service is temporarily unavailable. Please try again shortly.", e);
-}
+    private String resolveKey(ApiKeyPool pool) {
+        return switch (pool) {
+            case PRIMARY -> primaryKey;
+            case SECONDARY -> secondaryKey;
+            case TERTIARY -> tertiaryKey;
+        };
+    }
+
+    private void awaitRateLimitSlot(ApiKeyPool pool) {
+        Object lock = rateLimitLocks.get(pool);
+        Deque<Long> timestamps = requestTimestamps.get(pool);
+        synchronized (lock) {
+            while (true) {
+                long now = System.currentTimeMillis();
+                while (!timestamps.isEmpty() && now - timestamps.peekFirst() > WINDOW_MILLIS) {
+                    timestamps.pollFirst();
+                }
+                if (timestamps.size() < MAX_REQUESTS_PER_WINDOW) {
+                    timestamps.addLast(now);
+                    return;
+                }
+                long oldest = timestamps.peekFirst();
+                long waitMillis = Math.max(WINDOW_MILLIS - (now - oldest) + 250, 250);
+                try {
+                    lock.wait(waitMillis);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
         }
     }
 
@@ -98,30 +149,7 @@ System.out.println("================================");
             return "AI service rate limit or daily quota exceeded. Please wait and try again later, "
                     + "or check the Gemini API plan/quota for this project.";
         }
-        if (e.getStatusCode().value() == 404) {
-            // On the free tier, Google sometimes returns 404 instead of 429 once a
-            // project's quota bucket for this model is completely drained, rather
-            // than a model-name problem. Surface that instead of a generic 404.
-            return "AI service is unavailable, likely because the daily/per-minute Gemini quota for "
-                    + "this project is exhausted. Check Rate Limit / Billing in Google AI Studio, or wait "
-                    + "for the quota window to reset.";
-        }
         return "AI service request failed (" + e.getStatusCode().value() + "). Please try again shortly.";
-    }
-
-    // Blocks the calling thread until at least MIN_INTERVAL_MS has passed since
-    // the previous Gemini call made by ANY thread in this JVM. Synchronized so
-    // concurrent "run all checks" requests serialize here instead of all
-    // hitting Google in the same second.
-    private void awaitThrottleSlot() {
-        synchronized (THROTTLE_LOCK) {
-            long now = System.currentTimeMillis();
-            long elapsed = now - lastCallTimestamp;
-            if (elapsed < MIN_INTERVAL_MS) {
-                sleepQuietly(MIN_INTERVAL_MS - elapsed);
-            }
-            lastCallTimestamp = System.currentTimeMillis();
-        }
     }
 
     private void sleepQuietly(long millis) {
