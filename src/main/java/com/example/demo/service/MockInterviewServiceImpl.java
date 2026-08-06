@@ -27,7 +27,7 @@ public class MockInterviewServiceImpl implements MockInterviewService {
     private final GeminiService geminiService;
     private final ObjectMapper objectMapper;
 
-    private static final int DEFAULT_QUESTION_COUNT = 5;
+    private static final int DEFAULT_QUESTION_COUNT = 10; // fixed, non-configurable number of interview questions
 
     @Override
     public InterviewSessionDTO startInterview(StartInterviewRequestDTO request, String userId) {
@@ -44,7 +44,10 @@ public class MockInterviewServiceImpl implements MockInterviewService {
 textExtractionService.extractText(
         resume.getGridFsId(),
         resume.getFileType());
-        int questionCount = request.getNumberOfQuestions() != null ? request.getNumberOfQuestions() : DEFAULT_QUESTION_COUNT;
+        // Always generate a fixed number of questions. numberOfQuestions from the
+        // client is intentionally ignored so the count can't be changed by users,
+        // even by calling this endpoint directly (bypassing the frontend UI).
+        int questionCount = DEFAULT_QUESTION_COUNT;
 
         String prompt = buildQuestionGenerationPrompt(resumeText, jd != null ? jd.getDescription() : null, questionCount);
         String geminiResponse = geminiService.generateContent(prompt);
